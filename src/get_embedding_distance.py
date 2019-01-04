@@ -49,14 +49,8 @@ def main(args):
       
         with tf.Session() as sess:
             
-            # Read the file containing the pairs used for testing
-            #pairs = lfw.read_pairs(os.path.expanduser(args.lfw_pairs))
-            
-            image_name1 = os.path.expanduser(args.first_picture)
-            image_name2 = os.path.expanduser(args.second_picture)
-
-            # Get the paths for the corresponding images
-            #paths, actual_issame = lfw.get_paths(os.path.expanduser(args.lfw_dir), pairs)
+            image_dir1 = os.path.expanduser(args.first_dir)
+            image_dir2 = os.path.expanduser(args.second_dir)
             
             image_paths_placeholder = tf.placeholder(tf.string, shape=(None,1), name='image_paths')
             labels_placeholder = tf.placeholder(tf.int32, shape=(None,1), name='labels')
@@ -89,32 +83,34 @@ def main(args):
 
             print('facenet embedding模型建立完毕')
 
-            
-            scaled_reshape = []
+            for num in range(0,args.image_num):
 
-            image1 = scipy.misc.imread(image_name1, mode='RGB')
-            image1 = cv2.resize(image1, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
-            image1 = facenet.prewhiten(image1)
-            scaled_reshape.append(image1.reshape(-1,args.image_size,args.image_size,3))
-            emb_array1 = np.zeros((1, embedding_size))
-            emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
+                scaled_reshape = []
 
-            image2 = scipy.misc.imread(image_name2, mode='RGB')
-            image2 = cv2.resize(image2, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
-            image2 = facenet.prewhiten(image2)
-            scaled_reshape.append(image2.reshape(-1,args.image_size,args.image_size,3))
-            emb_array2 = np.zeros((1, embedding_size))
-            emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
+                image_name1 = "%s/%d.jpg" % (image_dir1,num)
+                image_name2 = "%s/%d.jpg" % (image_dir2,num)
 
-            dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
-            print("128维特征向量的欧氏距离：%f "%dist)
-#              
-#            coord = tf.train.Coordinator()
-#            tf.train.start_queue_runners(coord=coord, sess=sess)
+                image1 = scipy.misc.imread(image_name1, mode='RGB')
+                image1 = cv2.resize(image1, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
+                image1 = facenet.prewhiten(image1)
+                scaled_reshape.append(image1.reshape(-1,args.image_size,args.image_size,3))
+                emb_array1 = np.zeros((1, embedding_size))
+                emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
 
-#            evaluate(sess, eval_enqueue_op, image_paths_placeholder, labels_placeholder, phase_train_placeholder, batch_size_placeholder, control_placeholder,
-#                embeddings, label_batch, paths, actual_issame, args.lfw_batch_size, args.lfw_nrof_folds, args.distance_metric, args.subtract_mean,
-#                args.use_flipped_images, args.use_fixed_image_standardization)
+                image2 = scipy.misc.imread(image_name2, mode='RGB')
+                image2 = cv2.resize(image2, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
+                image2 = facenet.prewhiten(image2)
+                scaled_reshape.append(image2.reshape(-1,args.image_size,args.image_size,3))
+                emb_array2 = np.zeros((1, embedding_size))
+                emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
+
+                dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
+                print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
+                if dist < 1.028:
+                    print(" 第%d组照片是同一个人 "%num)
+                else:
+                    print(" 第%d组照片不是同一个人 "%num)
+
 
               
 def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phase_train_placeholder, batch_size_placeholder, control_placeholder,
@@ -172,30 +168,17 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phas
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
     
-    #parser.add_argument('lfw_dir', type=str,
-        #help='Path to the data directory containing aligned LFW face patches.')
-    #parser.add_argument('--lfw_batch_size', type=int,
-        #help='Number of images to process in a batch in the LFW test set.', default=100)
     parser.add_argument('--model', type=str, 
         help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf (.pb) file')
     parser.add_argument('--image_size', type=int,
         help='Image size (height, width) in pixels.', default=160)
-    #parser.add_argument('--lfw_pairs', type=str,
-        #help='The file containing the pairs to use for validation.', default='data/pairs.txt')
-    #parser.add_argument('--lfw_nrof_folds', type=int,
-        #help='Number of folds to use for cross validation. Mainly used for testing.', default=10)
-    #parser.add_argument('--distance_metric', type=int,
-        #help='Distance metric  0:euclidian, 1:cosine similarity.', default=0)
-    #parser.add_argument('--use_flipped_images', 
-        #help='Concatenates embeddings for the image and its horizontally flipped counterpart.', action='store_true')
-    #parser.add_argument('--subtract_mean', 
-        #help='Subtract feature mean before calculating distance.', action='store_true')
-    #parser.add_argument('--use_fixed_image_standardization', 
-        #help='Performs fixed standardization of images.', action='store_true')
-    parser.add_argument('--first_picture', type=str,
-        help='aligend test first picture.')
-    parser.add_argument('--second_picture', type=str,
-        help='aligend test second picture.')
+    parser.add_argument('--first_dir', type=str,
+        help='aligend test first dir.')
+    parser.add_argument('--second_dir', type=str,
+        help='aligend test second dir.')
+    parser.add_argument('--image_num', type=int,
+        help='images number.')
+
     return parser.parse_args(argv)
 
 if __name__ == '__main__':
