@@ -56,7 +56,7 @@ The accuracy on LFW for the model [20180402-114759](https://drive.google.com/ope
 
 ## Demo
 
-python src/get_embedding_distance.py --model src/models/20180402-114759 --first_picture xz.jpg --second_picture yz.jpg
+python src/get_embedding_distance.py --model src/models/20180402-114759 --first_dir xz.jpg --second_dir yz.jpg --image_num 10
 
 
 python src/validate_on_lfw.py data/lfw_data/lfw_160 src/models/20180402-114759 --distance_metric 1 --use_flipped_images --subtract_mean --use_fixed_image_standardization
