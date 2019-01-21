@@ -56,8 +56,20 @@ The accuracy on LFW for the model [20180402-114759](https://drive.google.com/ope
 
 ## Demo
 
+```
+python align_dataset_mtcnn.py facenet/data/lfw_data/lfw facenet/data/lfw_data/lfw_160 --image_size 160 --margin 32 --random_order --gpu_memory_fraction 0.25
+
 python src/get_embedding_distance.py --model src/models/20180402-114759 --first_dir zu1 --second_dir zu2 --image_num 10
 
-
 python src/validate_on_lfw.py data/lfw_data/lfw_160 src/models/20180402-114759 --distance_metric 1 --use_flipped_images --subtract_mean --use_fixed_image_standardization
+
+python src/classifier.py TRAIN data/lfw_data/lfw160 20180402-114759/20180402-114759.pb src/models/lfw_classifier.pkl \
+--batch_size 1000 \
+--min_nrof_images_per_class 40 \
+--nrof_train_images_per_class 35 \
+--use_split_dataset
+
+python src/classifier.py TRAIN data/lfw_data/lfw_160 20180402-114759/20180402-114759.pb src/models/lfw_classifier.pkl
+
+```
 
