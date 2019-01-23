@@ -15,9 +15,13 @@ import tensorflow as tf
 #tasks_queue = JoinableQueue()
 results_queue = Queue()
 convert_queue = Queue()
+message_queue = Queue()
 
 image_extension = ".jpg"
 target_img_size = 160
+
+IsCatchVideoQuit = False
+IsFaceDectecdQuit = False
 
 
 name = input('please input your name:')
@@ -60,7 +64,7 @@ videoName = "rtsp://admin:ABC_123456@172.17.208.150:554/Streaming/Channels/101?t
 # 打开摄像头 参数为输入流，可以为摄像头或视频文件
 
 
-def CatchUsbVideo(out_queue):
+def CatchUsbVideo(out_queue,msg_q):
     process_flag = False
     cv2.namedWindow(window_name)
  
@@ -78,7 +82,7 @@ def CatchUsbVideo(out_queue):
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
                           cv2.WINDOW_FULLSCREEN)
         n = n + 1
-        if n == 20:
+        if n == 30:
             if process_flag == True:
                 out_queue.put(frame)
             n = 1
@@ -92,12 +96,17 @@ def CatchUsbVideo(out_queue):
             break        
         if c & 0xFF == ord('d'):
             process_flag = True
+        if not msg_q.empty():
+            if msg_q.get() == "complate_msg":
+                break
+
+
  
     #释放摄像头并销毁所有窗口
     cap.release()
     cv2.destroyAllWindows() 
 
-def ConvertUseTensorflowMtcnn(in_queue):
+def ConvertUseTensorflowMtcnn(in_queue,msg_q):
     margin = 32
     index_num = 0
     target_dir = os.path.join(img_dir,"images_data_%d" % target_img_size)
@@ -105,7 +114,7 @@ def ConvertUseTensorflowMtcnn(in_queue):
     if not os.path.exists(output_user_dir):
         os.makedirs(output_user_dir)
 
-    minsize = 100 # minimum size of face
+    minsize = 30 # minimum size of face
     threshold = [ 0.6, 0.7, 0.7 ]  # three steps's threshold
     factor = 0.709 # scale factor
 
@@ -155,13 +164,23 @@ def ConvertUseTensorflowMtcnn(in_queue):
 
                 misc.imsave(output_filename_n, scaled)
 
-
                 index_num += 1
+        #if os.path.exists(file_name):
+            #os.remove(file_name)
+        if index_num >= 5:
+            msg_q.put("complate_msg")
+            msg_q.put("complate_msg")
+            break
 
 
-add = 100
-def FaceDectection(in_queue,out_convert_queue):
+
+add = 30
+def FaceDectection(in_queue,out_convert_queue,msg_q):
     index = 0
+    num = 0
+    temporary_dir = os.path.join(output_dir,"%d" % index)
+    if  not os.path.exists(temporary_dir):
+        os.makedirs(temporary_dir)
     while 1:
         img = in_queue.get()
         g_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -175,41 +194,53 @@ def FaceDectection(in_queue,out_convert_queue):
             x2 = d.left() if d.left() > 0 else 0
             y2 = d.right() if d.right() > 0 else 0
 
-            print("x1: %d    " % x1)
-            print("x2: %d    " % x2)
-            print("y1: %d    " % y1)
-            print("y2: %d    " % y2)
+            print("index: %d   num %d " % (index,num))
+
 
             face = img[x1-add:y1 + add,x2-add:y2 + add]
 
 
             if face.shape[0] > 300 :  # check picture size
-                file = os.path.join(output_dir,str(index)+image_extension)
+                g_img = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+                if cv2.Laplacian(g_img, cv2.CV_64F).var() < 300:
+                    continue
+                file = os.path.join(temporary_dir,str(num)+image_extension)
                 cv2.imwrite(file, face)
-                index += 1
+                #out_convert_queue.put(file)
+                num += 1
+        
 
-        if index == 5:
-            img_file = os.path.join(output_dir,"*" + image_extension)
+        if num >= 5:
+            img_file = os.path.join(temporary_dir,"*" + image_extension)
             print(img_file)
             img_name_list = glob.glob(img_file)
+
             for nm in img_name_list:
                 out_convert_queue.put(nm)
-            break
+            index += 1
+            temporary_dir = os.path.join(output_dir,"%d" % index)
+            if  not os.path.exists(temporary_dir):
+                os.makedirs(temporary_dir)
+            num = 0
+
+        if not msg_q.empty():
+            if msg_q.get() == "complate_msg":
+                break
 
 
 #if __name__ == '__main__':
 #    CatchUsbVideo()
 processes = []
 
-p = Process(target=CatchUsbVideo, args=(results_queue,))
+p = Process(target=CatchUsbVideo, args=(results_queue,message_queue,))
 p.start()
 processes.append(p)
 
-p = Process(target=FaceDectection, args=(results_queue,convert_queue,))
+p = Process(target=FaceDectection, args=(results_queue,convert_queue,message_queue,))
 p.start()
 processes.append(p)
 
-p = Process(target=ConvertUseTensorflowMtcnn, args=(convert_queue,))
+p = Process(target=ConvertUseTensorflowMtcnn, args=(convert_queue,message_queue,))
 p.start()
 processes.append(p)
 
