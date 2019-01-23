@@ -2,21 +2,36 @@ import cv2
 import dlib
 import os
 import sys
-#import random
+from scipy import misc
 import time
 from multiprocessing import Process, JoinableQueue, Queue
 from random import random
 import time
+import glob
+import facenet.src.align.detect_face as detect_face
+import numpy as np
+import tensorflow as tf
 
 #tasks_queue = JoinableQueue()
 results_queue = Queue()
+convert_queue = Queue()
 
+image_extension = ".jpg"
+target_img_size = 160
 
 
 name = input('please input your name:')
 window_name = "face picture entry"
-output_dir = './' + name + '_t'
-size = 64
+src_path,_ = os.path.split(os.path.realpath(__file__))
+print(src_path)
+data_dir = os.path.join(src_path,"data")
+print(data_dir)
+output_dir = os.path.join(data_dir,name)
+#size = 64
+
+img_dir = os.path.join(src_path,"images")
+size_dir = os.path.join(img_dir,"%d" % target_img_size)
+
 
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
@@ -82,15 +97,15 @@ def CatchUsbVideo(out_queue):
     cap.release()
     cv2.destroyAllWindows() 
 
-def FaceDectectionUseTensorflowMtcnn(in_queue):
+def ConvertUseTensorflowMtcnn(in_queue):
     margin = 32
     index_num = 0
-    target_dir = os.path.join(data_dir,"images_data_%d" % target_img_size)
+    target_dir = os.path.join(img_dir,"images_data_%d" % target_img_size)
     output_user_dir = os.path.join(target_dir, name)
     if not os.path.exists(output_user_dir):
         os.makedirs(output_user_dir)
 
-    minsize = 20 # minimum size of face
+    minsize = 100 # minimum size of face
     threshold = [ 0.6, 0.7, 0.7 ]  # three steps's threshold
     factor = 0.709 # scale factor
 
@@ -101,9 +116,14 @@ def FaceDectectionUseTensorflowMtcnn(in_queue):
         with sess.as_default():
             pnet, rnet, onet = detect_face.create_mtcnn(sess, None)
     while 1:
-        img = in_queue.get()
+        file_name = in_queue.get()
+        print("====== file: %s" % file_name)
+        img = cv2.imread(file_name)
+        
         bounding_boxes, _ = detect_face.detect_face(img, minsize, pnet, rnet, onet, threshold, factor)
+        print(bounding_boxes)
         nrof_faces = bounding_boxes.shape[0]
+        print(nrof_faces)
         if nrof_faces>0:
             det = bounding_boxes[:,0:4]
             det_arr = []
@@ -137,14 +157,16 @@ def FaceDectectionUseTensorflowMtcnn(in_queue):
 
 
                 index_num += 1
-                
-def FaceDectection(in_queue):
+
+
+add = 100
+def FaceDectection(in_queue,out_convert_queue):
     index = 0
     while 1:
         img = in_queue.get()
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        g_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # 使用detector进行人脸检测
-        dets = detector(gray_img, 1)
+        dets = detector(g_img, 1)
 
         for i, d in enumerate(dets):
             print("----- i:%d\n" % i)
@@ -153,15 +175,26 @@ def FaceDectection(in_queue):
             x2 = d.left() if d.left() > 0 else 0
             y2 = d.right() if d.right() > 0 else 0
 
-            face = img[x1:y1,x2:y2]
+            print("x1: %d    " % x1)
+            print("x2: %d    " % x2)
+            print("y1: %d    " % y1)
+            print("y2: %d    " % y2)
+
+            face = img[x1-add:y1 + add,x2-add:y2 + add]
 
 
-            if face.shape[0] > 400 :  # check picture size
-                cv2.imwrite(output_dir+'/'+str(index)+'.jpg', face)
+            if face.shape[0] > 300 :  # check picture size
+                file = os.path.join(output_dir,str(index)+image_extension)
+                cv2.imwrite(file, face)
                 index += 1
 
         if index == 5:
-                break
+            img_file = os.path.join(output_dir,"*" + image_extension)
+            print(img_file)
+            img_name_list = glob.glob(img_file)
+            for nm in img_name_list:
+                out_convert_queue.put(nm)
+            break
 
 
 #if __name__ == '__main__':
@@ -172,7 +205,11 @@ p = Process(target=CatchUsbVideo, args=(results_queue,))
 p.start()
 processes.append(p)
 
-p = Process(target=FaceDectection, args=(results_queue,))
+p = Process(target=FaceDectection, args=(results_queue,convert_queue,))
+p.start()
+processes.append(p)
+
+p = Process(target=ConvertUseTensorflowMtcnn, args=(convert_queue,))
 p.start()
 processes.append(p)
 
