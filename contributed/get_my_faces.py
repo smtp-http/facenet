@@ -4,7 +4,7 @@ import os
 import sys
 from scipy import misc
 import time
-from multiprocessing import Process, JoinableQueue, Queue
+from multiprocessing import Process, Queue
 from random import random
 import time
 import glob
@@ -170,6 +170,7 @@ def ConvertUseTensorflowMtcnn(in_queue,msg_q):
         if index_num >= 5:
             msg_q.put("complate_msg")
             msg_q.put("complate_msg")
+            msg_q.put("complate_msg")
             break
 
 
@@ -200,15 +201,17 @@ def FaceDectection(in_queue,out_convert_queue,msg_q):
             face = img[x1-add:y1 + add,x2-add:y2 + add]
 
 
-            if face.shape[0] > 300 :  # check picture size
+            if face.shape[0] > 250 :  # check picture size
                 g_img = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-                if cv2.Laplacian(g_img, cv2.CV_64F).var() < 300:
+                lm = cv2.Laplacian(g_img, cv2.CV_64F).var()
+                print("## lm : %d \n" % lm)
+                if lm < 300:
                     continue
                 file = os.path.join(temporary_dir,str(num)+image_extension)
                 cv2.imwrite(file, face)
                 #out_convert_queue.put(file)
                 num += 1
-        
+         
 
         if num >= 5:
             img_file = os.path.join(temporary_dir,"*" + image_extension)
@@ -250,4 +253,7 @@ for p in processes:
 
 while 1:
     time.sleep(1)
+    if not message_queue.empty():
+        if message_queue.get() == "complate_msg":
+            break
 

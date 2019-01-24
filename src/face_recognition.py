@@ -42,15 +42,142 @@ from sklearn import metrics
 from scipy.optimize import brentq
 from scipy import interpolate
 import scipy.misc
+from multiprocessing import Process, Queue
+import glob
+import time
 
-def main(args):
-  
+
+image_extension = ".png"
+image_size = 160
+model = "/root/src/facenet/src/models/20180402-114759"
+videoName = "rtsp://admin:ABC_123456@172.17.208.150:554/Streaming/Channels/101?transportmode=unicast"
+window_name = "人脸识别"
+compare_dir = "/root/src/test/facenet/contributed/images/images_data_160"
+
+
+
+
+src_path,_ = os.path.split(os.path.realpath(__file__))
+print(src_path)
+temporary_dir = os.path.join(src_path,"data")
+print(temporary_dir)
+
+InfoQueue = Queue()
+MessageQueue = Queue()
+FrameQueue = Queue()
+
+
+def main():
+    processes = []
+
+    p = Process(target=PersonCompare, args=(InfoQueue,MessageQueue,))
+    p.start()
+    processes.append(p)
+
+    p = Process(target=FaceDectection, args=(FrameQueue,InfoQueue,MessageQueue,))
+    p.start()
+    processes.append(p)
+
+    for p in processes:
+        p.join()
+    
+    process_flag = False
+    cv2.namedWindow(window_name)
+ 
+    #视频来源，可以来自一段已存好的视频，也可以直接来自USB摄像头
+    cap = cv2.VideoCapture(videoName)      
+    n = 1
+    while cap.isOpened():
+        ok, frame = cap.read() #读取一帧数据
+        if not ok:            
+            break                    
+ 
+        #显示图像并等待10毫秒按键输入，输入‘q’退出程序
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) #cv2.WND_PROP_FULLSCREEN)
+        #cv2.moveWindow(window_name, screen.x - 1, screen.y - 1)
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
+                          cv2.WINDOW_FULLSCREEN)
+        n = n + 1
+        if n == 30:
+            if process_flag == True:
+                out_queue.put(frame)
+            n = 1
+            
+        else:
+            frameresize = cv2.resize(frame,(1280,800))
+            cv2.imshow(window_name, frameresize)
+
+        c = cv2.waitKey(10)
+        if c & 0xFF == ord('q'):
+            MessageQueue.put("complate_msg")
+            MessageQueue.put("complate_msg")
+            break        
+        if c & 0xFF == ord('r'):
+            process_flag = True
+
+        if c & 0xFF == ord('s'):
+            process_flag = False
+
+
+ 
+    #释放摄像头并销毁所有窗口
+    cap.release()
+    cv2.destroyAllWindows() 
+
+
+
+add = 0
+def FaceDectection(frame_q,info_q,msg_q):
+    index = 0
+    num = 0
+
+    if  not os.path.exists(temporary_dir):
+        os.makedirs(temporary_dir)
+    while 1:
+        img = frame_q.get()
+        g_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # 使用detector进行人脸检测
+        dets = detector(g_img, 1)
+
+        for i, d in enumerate(dets):
+            print("----- i:%d\n" % i)
+            x1 = d.top() if d.top() > 0 else 0
+            y1 = d.bottom() if d.bottom() > 0 else 0
+            x2 = d.left() if d.left() > 0 else 0
+            y2 = d.right() if d.right() > 0 else 0
+
+            print("index: %d   num %d " % (index,num))
+
+            face = img[x1-add:y1 + add,x2-add:y2 + add]
+
+            if face.shape[0] > 200 :  # check picture size
+                g_img = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+                lm = cv2.Laplacian(g_img, cv2.CV_64F).var()
+                print("## lm : %d \n" % lm)
+                if lm < 300:
+                    continue
+                
+                num += 1
+                if num >= 3:
+                    file = os.path.join(temporary_dir,str(int(round(time.time() * 1000)))+image_extension)
+                    cv2.imwrite(file, face)
+                    info_q.put(file)
+                    num = 0
+
+
+
+        if not msg_q.empty():
+            if msg_q.get() == "complate_msg":
+                break
+
+
+def PersonCompare(info_queue,msg_q):
     with tf.Graph().as_default():
       
         with tf.Session() as sess:
-            
-            image_dir1 = os.path.expanduser(args.first_dir)
-            image_dir2 = os.path.expanduser(args.second_dir)
+
+            #image_dir1 = os.path.expanduser(args.first_dir)
+            #image_dir2 = os.path.expanduser(args.second_dir)
             
             image_paths_placeholder = tf.placeholder(tf.string, shape=(None,1), name='image_paths')
             labels_placeholder = tf.placeholder(tf.int32, shape=(None,1), name='labels')
@@ -59,7 +186,7 @@ def main(args):
             phase_train_placeholder = tf.placeholder(tf.bool, name='phase_train')
  
             nrof_preprocess_threads = 4
-            image_size = (args.image_size, args.image_size)
+            #image_size = (image_size, image_size)
 
             eval_input_queue = data_flow_ops.FIFOQueue(capacity=2000000,
                                         dtypes=[tf.string, tf.int32, tf.int32],
@@ -71,10 +198,10 @@ def main(args):
             # Load the model
             input_map = {'image_batch': image_batch, 'label_batch': label_batch, 'phase_train': phase_train_placeholder}
             print('=== model: ')
-            print(args.model)
+            print(model)
             print('===input_map: ')
             print(input_map)
-            facenet.load_model(args.model, input_map=input_map)
+            facenet.load_model(model, input_map=input_map)
 
             images_placeholder = tf.get_default_graph().get_tensor_by_name("input:0")
             # Get output tensor
@@ -83,33 +210,39 @@ def main(args):
 
             print('facenet embedding模型建立完毕')
 
-            for num in range(0,args.image_num):
+            while 1:
+                info = info_queue.get()
+                input_img = info
+                
+                img_files = os.path.join(compare_dir,"*" + image_extension)
 
-                scaled_reshape = []
+                img_name_list = glob.glob(img_files)
 
-                image_name1 = "%s/%d.jpg" % (image_dir1,num)
-                image_name2 = "%s/%d.jpg" % (image_dir2,num)
+                for compare_img in img_name_list:
+                    scaled_reshape = []
+                    image1 = scipy.misc.imread(input_img, mode='RGB')
+                    image1 = cv2.resize(image1, (image_size, image_size), interpolation=cv2.INTER_CUBIC)
+                    image1 = facenet.prewhiten(image1)
+                    scaled_reshape.append(image1.reshape(-1,image_size,image_size,3))
+                    emb_array1 = np.zeros((1, embedding_size))
+                    emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
 
-                image1 = scipy.misc.imread(image_name1, mode='RGB')
-                image1 = cv2.resize(image1, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
-                image1 = facenet.prewhiten(image1)
-                scaled_reshape.append(image1.reshape(-1,args.image_size,args.image_size,3))
-                emb_array1 = np.zeros((1, embedding_size))
-                emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
+                    image2 = scipy.misc.imread(compare_img, mode='RGB')
+                    image2 = cv2.resize(image2, (image_size, image_size), interpolation=cv2.INTER_CUBIC)
+                    image2 = facenet.prewhiten(image2)
+                    scaled_reshape.append(image2.reshape(-1,image_size,image_size,3))
+                    emb_array2 = np.zeros((1, embedding_size))
+                    emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
 
-                image2 = scipy.misc.imread(image_name2, mode='RGB')
-                image2 = cv2.resize(image2, (args.image_size, args.image_size), interpolation=cv2.INTER_CUBIC)
-                image2 = facenet.prewhiten(image2)
-                scaled_reshape.append(image2.reshape(-1,args.image_size,args.image_size,3))
-                emb_array2 = np.zeros((1, embedding_size))
-                emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
-
-                dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
-                print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
-                if dist < 1:
-                    print(" 第%d组照片是同一个人 "%num)
-                else:
-                    print(" 第%d组照片不是同一个人 "%num)
+                    dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
+                    print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
+                    if dist < 1.028:
+                        print(" 第%d组照片是同一个人 "%num)
+                    else:
+                        print(" 第%d组照片不是同一个人 "%num)
+                if not msg_q.empty():
+                    if msg_q.get() == "complate_msg":
+                        break
 
 
               
@@ -165,21 +298,7 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phas
     eer = brentq(lambda x: 1. - x - interpolate.interp1d(fpr, tpr)(x), 0., 1.)
     print('Equal Error Rate (EER): %1.3f' % eer)
     
-def parse_arguments(argv):
-    parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--model', type=str, 
-        help='Could be either a directory containing the meta_file and ckpt_file or a model protobuf (.pb) file')
-    parser.add_argument('--image_size', type=int,
-        help='Image size (height, width) in pixels.', default=160)
-    parser.add_argument('--first_dir', type=str,
-        help='aligend test first dir.')
-    parser.add_argument('--second_dir', type=str,
-        help='aligend test second dir.')
-    parser.add_argument('--image_num', type=int,
-        help='images number.')
 
-    return parser.parse_args(argv)
 
 if __name__ == '__main__':
     main(parse_arguments(sys.argv[1:]))
