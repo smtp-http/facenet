@@ -45,16 +45,17 @@ import scipy.misc
 from multiprocessing import Process, Queue
 import glob
 import time
+import dlib
 
 
 image_extension = ".png"
-image_size = 160
+
 model = "/root/src/facenet/src/models/20180402-114759"
 videoName = "rtsp://admin:ABC_123456@172.17.208.150:554/Streaming/Channels/101?transportmode=unicast"
 window_name = "人脸识别"
 compare_dir = "/root/src/test/facenet/contributed/images/images_data_160"
 
-
+detector = dlib.get_frontal_face_detector()
 
 
 src_path,_ = os.path.split(os.path.realpath(__file__))
@@ -70,6 +71,10 @@ FrameQueue = Queue()
 def main():
     processes = []
 
+    p = Process(target=CatchVideo, args=(FrameQueue,MessageQueue,))
+    p.start()
+    processes.append(p)
+
     p = Process(target=PersonCompare, args=(InfoQueue,MessageQueue,))
     p.start()
     processes.append(p)
@@ -81,6 +86,8 @@ def main():
     for p in processes:
         p.join()
     
+
+def CatchVideo(frame_q,msg_q):
     process_flag = False
     cv2.namedWindow(window_name)
  
@@ -100,7 +107,7 @@ def main():
         n = n + 1
         if n == 30:
             if process_flag == True:
-                out_queue.put(frame)
+                frame_q.put(frame)
             n = 1
             
         else:
@@ -109,8 +116,8 @@ def main():
 
         c = cv2.waitKey(10)
         if c & 0xFF == ord('q'):
-            MessageQueue.put("complate_msg")
-            MessageQueue.put("complate_msg")
+            msg_q.put("complate_msg")
+            msg_q.put("complate_msg")
             break        
         if c & 0xFF == ord('r'):
             process_flag = True
@@ -123,7 +130,6 @@ def main():
     #释放摄像头并销毁所有窗口
     cap.release()
     cv2.destroyAllWindows() 
-
 
 
 add = 0
@@ -160,7 +166,8 @@ def FaceDectection(frame_q,info_q,msg_q):
                 num += 1
                 if num >= 3:
                     file = os.path.join(temporary_dir,str(int(round(time.time() * 1000)))+image_extension)
-                    cv2.imwrite(file, face)
+                    image = cv2.resize(face,(160,160))
+                    cv2.imwrite(file, image)
                     info_q.put(file)
                     num = 0
 
@@ -172,6 +179,7 @@ def FaceDectection(frame_q,info_q,msg_q):
 
 
 def PersonCompare(info_queue,msg_q):
+    image_size = (160,160)
     with tf.Graph().as_default():
       
         with tf.Session() as sess:
@@ -210,36 +218,53 @@ def PersonCompare(info_queue,msg_q):
 
             print('facenet embedding模型建立完毕')
 
+            image_num = 0
+            pass_num = 0
+
             while 1:
                 info = info_queue.get()
                 input_img = info
+
+                for parent, dirnames, filenames in os.walk(compare_dir):
+                    for username in dirnames:
+                        userdir = os.path.join(compare_dir,username)
+
+                        img_files = os.path.join(userdir,"*" + image_extension)
                 
-                img_files = os.path.join(compare_dir,"*" + image_extension)
+                        img_name_list = glob.glob(img_files)
 
-                img_name_list = glob.glob(img_files)
+                        for compare_img in img_name_list:
+                            scaled_reshape = []
+                            image1 = scipy.misc.imread(input_img, mode='RGB')
+                            image1 = cv2.resize(image1, image_size,  interpolation=cv2.INTER_CUBIC)
+                            image1 = facenet.prewhiten(image1)
+                            scaled_reshape.append(image1.reshape(-1,160,160,3))
+                            emb_array1 = np.zeros((1, embedding_size))
+                            emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
 
-                for compare_img in img_name_list:
-                    scaled_reshape = []
-                    image1 = scipy.misc.imread(input_img, mode='RGB')
-                    image1 = cv2.resize(image1, (image_size, image_size), interpolation=cv2.INTER_CUBIC)
-                    image1 = facenet.prewhiten(image1)
-                    scaled_reshape.append(image1.reshape(-1,image_size,image_size,3))
-                    emb_array1 = np.zeros((1, embedding_size))
-                    emb_array1[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[0], phase_train_placeholder: False })[0]
+                            image2 = scipy.misc.imread(compare_img, mode='RGB')
+                            image2 = cv2.resize(image2, image_size, interpolation=cv2.INTER_CUBIC)
+                            image2 = facenet.prewhiten(image2)
+                            scaled_reshape.append(image2.reshape(-1,160,160,3))
+                            emb_array2 = np.zeros((1, embedding_size))
+                            emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
 
-                    image2 = scipy.misc.imread(compare_img, mode='RGB')
-                    image2 = cv2.resize(image2, (image_size, image_size), interpolation=cv2.INTER_CUBIC)
-                    image2 = facenet.prewhiten(image2)
-                    scaled_reshape.append(image2.reshape(-1,image_size,image_size,3))
-                    emb_array2 = np.zeros((1, embedding_size))
-                    emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
+                            dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
+                            #print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
+                            if dist < 1.028:
+                                pass_num += 1
 
-                    dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
-                    print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
-                    if dist < 1.028:
-                        print(" 第%d组照片是同一个人 "%num)
-                    else:
-                        print(" 第%d组照片不是同一个人 "%num)
+                            image_num += 1
+                                #print(" 第%d组照片是同一个人 "%num)
+                        pass_rate = pass_num/image_num
+                        print("%s 通过率: %f " % (username,pass_rate))
+                        if pass_rate > 0.6 :
+                            print("=========== 你是: %s\n" % username)
+                            break
+
+                break
+
+
                 if not msg_q.empty():
                     if msg_q.get() == "complate_msg":
                         break
@@ -301,4 +326,4 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phas
 
 
 if __name__ == '__main__':
-    main(parse_arguments(sys.argv[1:]))
+    main()
