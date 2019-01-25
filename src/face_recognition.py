@@ -54,6 +54,7 @@ model = "/root/src/facenet/src/models/20180402-114759"
 videoName = "rtsp://admin:ABC_123456@172.17.208.150:554/Streaming/Channels/101?transportmode=unicast"
 window_name = "人脸识别"
 compare_dir = "/root/src/test/facenet/contributed/images/images_data_160"
+#compare_dir = "/root/src/data"
 
 detector = dlib.get_frontal_face_detector()
 
@@ -71,10 +72,6 @@ FrameQueue = Queue()
 def main():
     processes = []
 
-    p = Process(target=CatchVideo, args=(FrameQueue,MessageQueue,))
-    p.start()
-    processes.append(p)
-
     p = Process(target=PersonCompare, args=(InfoQueue,MessageQueue,))
     p.start()
     processes.append(p)
@@ -83,11 +80,6 @@ def main():
     p.start()
     processes.append(p)
 
-    for p in processes:
-        p.join()
-    
-
-def CatchVideo(frame_q,msg_q):
     process_flag = False
     cv2.namedWindow(window_name)
  
@@ -105,9 +97,9 @@ def CatchVideo(frame_q,msg_q):
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
                           cv2.WINDOW_FULLSCREEN)
         n = n + 1
-        if n == 30:
+        if n == 100:
             if process_flag == True:
-                frame_q.put(frame)
+                FrameQueue.put(frame)
             n = 1
             
         else:
@@ -116,8 +108,8 @@ def CatchVideo(frame_q,msg_q):
 
         c = cv2.waitKey(10)
         if c & 0xFF == ord('q'):
-            msg_q.put("complate_msg")
-            msg_q.put("complate_msg")
+            MessageQueue.put("complate_msg")
+            MessageQueue.put("complate_msg")
             break        
         if c & 0xFF == ord('r'):
             process_flag = True
@@ -130,6 +122,10 @@ def CatchVideo(frame_q,msg_q):
     #释放摄像头并销毁所有窗口
     cap.release()
     cv2.destroyAllWindows() 
+
+    for p in processes:
+        p.join()
+    
 
 
 add = 0
@@ -156,7 +152,7 @@ def FaceDectection(frame_q,info_q,msg_q):
 
             face = img[x1-add:y1 + add,x2-add:y2 + add]
 
-            if face.shape[0] > 200 :  # check picture size
+            if face.shape[0] > 300 :  # check picture size
                 g_img = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
                 lm = cv2.Laplacian(g_img, cv2.CV_64F).var()
                 print("## lm : %d \n" % lm)
@@ -164,12 +160,15 @@ def FaceDectection(frame_q,info_q,msg_q):
                     continue
                 
                 num += 1
-                if num >= 3:
-                    file = os.path.join(temporary_dir,str(int(round(time.time() * 1000)))+image_extension)
+                if num >= 2:
+                    file = os.path.join(temporary_dir,str(index)+image_extension)
                     image = cv2.resize(face,(160,160))
                     cv2.imwrite(file, image)
                     info_q.put(file)
                     num = 0
+                    index += 1
+                    if index > 1000:
+                        index = 0
 
 
 
@@ -222,10 +221,13 @@ def PersonCompare(info_queue,msg_q):
             pass_num = 0
 
             while 1:
-                info = info_queue.get()
-                input_img = info
+                input_img = info_queue.get()
+
+                #print(input_img)
+                #print("compare dir: %s" % compare_dir)
 
                 for parent, dirnames, filenames in os.walk(compare_dir):
+                    #print(dirnames)
                     for username in dirnames:
                         userdir = os.path.join(compare_dir,username)
 
@@ -250,26 +252,31 @@ def PersonCompare(info_queue,msg_q):
                             emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
 
                             dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
-                            #print("第%d组照片特征向量的欧氏距离：%f "%(num,dist))
-                            if dist < 1.028:
+                            print("%s：%f "% (username,dist))
+                            if dist < 1.0:
+                                print("pass num += 1")
                                 pass_num += 1
 
                             image_num += 1
                                 #print(" 第%d组照片是同一个人 "%num)
+                        if image_num == 0:
+                            pass_num = 0
+                            continue
                         pass_rate = pass_num/image_num
                         print("%s 通过率: %f " % (username,pass_rate))
-                        if pass_rate > 0.6 :
+                        pass_num = 0
+                        image_num = 0
+                        if pass_rate > 0.9 :
                             print("=========== 你是: %s\n" % username)
-                            break
-
-                break
+                            #break
+                    break
 
 
                 if not msg_q.empty():
                     if msg_q.get() == "complate_msg":
                         break
 
-
+"""
               
 def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phase_train_placeholder, batch_size_placeholder, control_placeholder,
         embeddings, labels, image_paths, actual_issame, batch_size, nrof_folds, distance_metric, subtract_mean, use_flipped_images, use_fixed_image_standardization):
@@ -323,7 +330,7 @@ def evaluate(sess, enqueue_op, image_paths_placeholder, labels_placeholder, phas
     eer = brentq(lambda x: 1. - x - interpolate.interp1d(fpr, tpr)(x), 0., 1.)
     print('Equal Error Rate (EER): %1.3f' % eer)
     
-
+"""
 
 if __name__ == '__main__':
     main()
