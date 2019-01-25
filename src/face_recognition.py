@@ -97,7 +97,7 @@ def main():
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN,
                           cv2.WINDOW_FULLSCREEN)
         n = n + 1
-        if n == 100:
+        if n == 50:
             if process_flag == True:
                 FrameQueue.put(frame)
             n = 1
@@ -179,6 +179,7 @@ def FaceDectection(frame_q,info_q,msg_q):
 
 def PersonCompare(info_queue,msg_q):
     image_size = (160,160)
+    total_dist = 0.0000
     with tf.Graph().as_default():
       
         with tf.Session() as sess:
@@ -222,7 +223,8 @@ def PersonCompare(info_queue,msg_q):
 
             while 1:
                 input_img = info_queue.get()
-
+                you = "who ?"
+                last_dist = 2
                 #print(input_img)
                 #print("compare dir: %s" % compare_dir)
 
@@ -252,23 +254,33 @@ def PersonCompare(info_queue,msg_q):
                             emb_array2[0, :] = sess.run(embeddings, feed_dict={images_placeholder: scaled_reshape[1], phase_train_placeholder: False })[0]
 
                             dist = np.sqrt(np.sum(np.square(emb_array1[0]-emb_array2[0])))
-                            print("%s：%f "% (username,dist))
-                            if dist < 1.0:
-                                print("pass num += 1")
-                                pass_num += 1
+                            #print("%s：%f "% (username,dist))
+                            total_dist += dist
+                            #if dist < 0.9:
+                                #print("pass num += 1")
+                                #pass_num += 1
 
                             image_num += 1
                                 #print(" 第%d组照片是同一个人 "%num)
                         if image_num == 0:
-                            pass_num = 0
+                            #pass_num = 0
+                            total_dist = 0
                             continue
-                        pass_rate = pass_num/image_num
-                        print("%s 通过率: %f " % (username,pass_rate))
-                        pass_num = 0
+                        #pass_rate = pass_num/image_num
+                        #print("%s 通过率: %f " % (username,pass_rate))
+                        #pass_num = 0
+                        mean_dist = total_dist / image_num
+                        #print("---- %s  mean dist: %f" % (username,mean_dist))
+                        if mean_dist < last_dist:
+                            last_dist = mean_dist
+                            you = username
                         image_num = 0
-                        if pass_rate > 0.9 :
-                            print("=========== 你是: %s\n" % username)
+                        total_dist = 0
+                        #if pass_rate >= 0.8 :
+                            #print("=========== 你是: %s\n" % username)
                             #break
+                    print("=========== 你是: %s\n" % you)
+
                     break
 
 
