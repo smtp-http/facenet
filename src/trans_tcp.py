@@ -1,17 +1,32 @@
 import socket
 import threading
+
 import time
 import sys
 import os
 import struct
 
 
-class __tcp_server:
-    def socket_service():
+class _Session:
+    m_conn = 0
+    m_addr = 0
+    m_tread = 0
+
+    def __init__(self,conn,addr,on_session):
+        self.m_conn = conn
+        self.m_addr = addr
+
+        self.m_tread = threading.Thread(target=on_session, args=(conn, addr))
+        self.m_tread.start()
+
+
+class TcpServer:
+
+    def __init__(self,ip,port):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(('127.0.0.1', 6666))
+            s.bind((ip, port))
             s.listen(10)
         except socket.error as msg:
             print(msg)
@@ -20,11 +35,12 @@ class __tcp_server:
 
         while 1:
             conn, addr = s.accept()
-            t = threading.Thread(target=deal_data, args=(conn, addr))
-            t.start()
+            #t = threading.Thread(target=deal_data, args=(conn, addr))
+            #t.start()
+            session = _Session(conn,addr,self.recv_image)
 
 
-    def deal_data(conn, addr): 
+    def recv_image(self,conn, addr): 
         print ('Accept new connection from {0}'.format(addr))
         #conn.settimeout(500) 
         conn.send(('Hi, Welcome to the server!').encode())
@@ -55,11 +71,11 @@ class __tcp_server:
             conn.close() 
             break
 
-class __tcp_client:
-    def socket_client():
+class TcpClient:
+    def __init__(self,ip,port):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect(('127.0.0.1', 6666))
+            s.connect((ip, port))
         except socket.error as msg:
             print(msg)
             sys.exit(1)
@@ -85,3 +101,6 @@ class __tcp_client:
                     s.send(data)
             s.close()
             break
+
+tcp_server = TcpServer("127.0.0.1",6666)
+#tcp_client = TcpClient("127.0.0.1",6666)
