@@ -54,7 +54,10 @@ A couple of pretrained models are provided. They are trained using softmax loss 
 ## Performance
 The accuracy on LFW for the model [20180402-114759](https://drive.google.com/open?id=1EXPBSXwTaqrSC0OhUdXNmKSh9qJUQ55-) is 0.99650+-0.00252. A description of how to run the test can be found on the page [Validate on LFW](https://github.com/davidsandberg/facenet/wiki/Validate-on-lfw). Note that the input images to the model need to be standardized using fixed image standardization (use the option `--use_fixed_image_standardization` when running e.g. `validate_on_lfw.py`).
 
-## [微服务接口定义](https://github.com/smtp-http/facenet/blob/master/src/REDME.md)
+## API
+### [微服务接口定义](https://github.com/smtp-http/facenet/blob/master/src/REDME.md)
+#### 接口访问实例：
+[example1](https://github.com/smtp-http/facenet/blob/master/src/testcase/http_client_example1.py)
 
 ## Demo
 
